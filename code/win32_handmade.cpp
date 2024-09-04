@@ -6,12 +6,69 @@
 
 
 #include <windows.h>
+#define local_persist static
+#define global_variable static
+#define internal static
 
 
-LRESULT CALLBACK MainWindowCallback(HWND Window,
-                                    UINT Message,
-                                    WPARAM WParam,
-                                    LPARAM LParam)
+//TODO: this is global for now
+global_variable bool Running;
+global_variable BITMAPINFO BitmapInfo;
+global_variable void *BitmapMemory;
+global_variable HBITMAP BitmapHandle;
+global_variable HDC BitmapDeviceContext;
+
+// DIB - device independent bitmap=> resizes the dib section, or creates if it does not exist
+internal void
+WIN32ResizeDIBSection(int Width, int Height){
+
+    // TODO: free our DIBSection
+    if(BitmapHandle){
+        DeleteObject(BitmapHandle);
+    }
+   if(!BitmapDeviceContext){
+        HDC BitmapDeviceContext = CreateCompatibleDC(0);
+   }
+
+
+    BitmapInfo.bmiHeader.biSize = sizeof(BitmapInfo.bmiHeader);
+    BitmapInfo.bmiHeader.biWidth = Width;
+    BitmapInfo.bmiHeader.biHeight = Height;
+    BitmapInfo.bmiHeader.biPlanes = 1;
+    BitmapInfo.bmiHeader.biBitCount = 32;
+    BitmapInfo.bmiHeader.biCompression = BI_RGB;
+
+
+    BitmapHandle =  CreateDIBSection(
+        BitmapDeviceContext,&BitmapInfo,
+        DIB_RGB_COLORS,
+        &BitmapMemory,
+        0,
+        0
+    );
+
+}
+
+internal void
+WIN32UpdateWindow(HDC DeviceContext,int X,int Y,int Width,int Height){
+     StretchDIBits(
+        DeviceContext,
+        X, Y, Width,Height,
+        X, Y, Width,Height,
+        BitmapMemory,
+        &BitmapInfo,
+        DIB_RGB_COLORS,
+        SRCCOPY
+    );
+
+ }
+
+
+LRESULT CALLBACK
+WIN32MainWindowCallback(HWND Window,
+                        UINT Message,
+                        WPARAM WParam,
+                        LPARAM LParam)
 {
 
     LRESULT Result = 0;
@@ -20,16 +77,24 @@ LRESULT CALLBACK MainWindowCallback(HWND Window,
     {
         case WM_SIZE:
         {
-            OutputDebugString("WM_SIZE\n");
+
+            RECT ClientRect;
+            GetClientRect(Window, &ClientRect);
+            int Width = ClientRect.bottom - ClientRect.top;
+            int Height = ClientRect.right -ClientRect.left;
+            WIN32ResizeDIBSection(Width, Height);
+
 
         }break;
         case WM_DESTROY:
         {
+            Running = false;
             OutputDebugString("WM_DESTROY\n");
 
         }break;
         case WM_CLOSE:
         {
+            Running = false;
             OutputDebugString("WM_CLOSE\n");
 
         }break;
@@ -46,13 +111,7 @@ LRESULT CALLBACK MainWindowCallback(HWND Window,
             int Y = Paint.rcPaint.top;
             int Width = Paint.rcPaint.bottom - Paint.rcPaint.top;
             int Height = Paint.rcPaint.right - Paint.rcPaint.left;
-            static DWORD Operation = WHITENESS;
-            PatBlt(DeviceContext, X, Y, Width, Height, Operation);
-            if(Operation == WHITENESS){
-                Operation = BLACKNESS;
-            }else{
-                Operation = WHITENESS;
-            }
+            WIN32UpdateWindow(DeviceContext,X,Y, Width, Height);
             EndPaint(Window, &Paint);
 
 
@@ -78,7 +137,7 @@ int CALLBACK WinMain(HINSTANCE hInstance,
     //WNDCLASS is a struct, you can look up
     WNDCLASS WindowClass = {}; //this initialisez all of the values of the struct to zero;
     WindowClass.style = CS_OWNDC|CS_HREDRAW|CS_VREDRAW;
-    WindowClass.lpfnWndProc = MainWindowCallback;
+    WindowClass.lpfnWndProc =WIN32MainWindowCallback;
     WindowClass.hInstance = hInstance;
     WindowClass.lpszClassName = "HandmadeHeroWindowClass";
 
@@ -100,9 +159,9 @@ int CALLBACK WinMain(HINSTANCE hInstance,
 
         if(WindowHandle){
             MSG Message;
-
-            for(;;){
-                BOOL MessageResult = GetMessage(&Message, 0, 0, 0);
+            Running = true;
+            while(Running){
+                BOOL MessageResult = GetMessageA(&Message, 0, 0, 0);
                 if(MessageResult > 0){
                     TranslateMessage(&Message);
                     DispatchMessage(&Message);
